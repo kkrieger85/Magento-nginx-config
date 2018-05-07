@@ -1,13 +1,22 @@
 #!/bin/bash
 
+#====================#===============#
+# CENTOS 7 OPTIMIZED | MASC-M SERVER #
+#====================#===============#
+
 NGINX_VERSION=$(curl -s http://nginx.org/en/download.html | grep -oP '(?<=gz">).*?(?=</a>)' | head -1)
-NPS_VERSION=$(curl -s https://api.github.com/repos/pagespeed/ngx_pagespeed/tags 2>&1 | head -3 | grep -oP '(?<="v).*(?=")')
+NPS_VERSION=$(curl -s https://api.github.com/repos/apache/incubator-pagespeed-ngx/tags 2>&1 | head -3 | grep -oP '(?<="v).*(?=")')
 NGINX_PAGESPEEDSO="/usr/lib64/nginx/modules/ngx_pagespeed.so"
 
-cd /opt
-wget -O v${NPS_VERSION}.zip https://github.com/pagespeed/ngx_pagespeed/archive/v${NPS_VERSION}.zip
+if [ ! -d "/opt/ngx_pagespeed_module" ]; then  
+    mkdir -p /opt/ngx_pagespeed_module && cd $_
+    else
+    rm -rf /opt/ngx_pagespeed_module/
+fi
+
+wget -O v${NPS_VERSION}.zip https://github.com/apache/incubator-pagespeed-ngx/archive/v${NPS_VERSION}.zip
 unzip -o v${NPS_VERSION}.zip
-cd ngx_pagespeed-${NPS_VERSION}/
+cd incubator-pagespeed-ngx-${NPS_VERSION}/
 
 NPS_RELEASE_NUMBER=${NPS_VERSION/beta/}
 NPS_RELEASE_NUMBER=${NPS_VERSION/stable/}
@@ -17,7 +26,7 @@ psol_url=https://dl.google.com/dl/page-speed/psol/${NPS_RELEASE_NUMBER}.tar.gz
 wget ${psol_url}
 tar -xzf $(basename ${psol_url})
 
-cd /opt
+cd /opt/ngx_pagespeed_module
 wget -O ${NGINX_VERSION}.tar.gz http://nginx.org/download/${NGINX_VERSION}.tar.gz
 tar -xzf ${NGINX_VERSION}.tar.gz
 cd ${NGINX_VERSION}/
@@ -62,19 +71,42 @@ cd ${NGINX_VERSION}/
 	--with-stream_ssl_preread_module \
 	--with-http_perl_module \
 	--with-http_geoip_module \
-	--add-dynamic-module=/opt/ngx_pagespeed-${NPS_VERSION} \
+	--add-dynamic-module=/opt/ngx_pagespeed_module/incubator-pagespeed-ngx-${NPS_VERSION} \
 	--with-cc-opt='-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -fPIC' \
 	--with-ld-opt='-Wl,-z,relro -Wl,-z,now -pie'
 
-if [ -L ${NGINX_PAGESPEEDSO} ] ; then
-   if [ -e ${NGINX_PAGESPEEDSO} ] ; then
-     rm ${NGINX_PAGESPEEDSO%.*}* 
-   fi
+if [ $? -eq 0 ]; then
+if [ -d "/etc/nginx" ]; then  
+    cp -rf /etc/nginx /etc/nginx_config_back_nps  
+    #yum remove nginx
+fi
+if [ -L ${NGINX_PAGESPEEDSO} ]; then
+     rm ${NGINX_PAGESPEEDSO%.*}*
+fi
+make
+else
+  echo "==============================================================="
+  echo "Configure error"
+  exit 1
 fi
 
-make -s
-make -s install
-
+if [ $? -eq 0 ]; then
+make install
 cd /usr/lib64/nginx/modules
 mv ngx_pagespeed.so ngx_pagespeed_${NGINX_VERSION}.so 
 ln -s ngx_pagespeed_${NGINX_VERSION}.so ngx_pagespeed.so
+sed -i "/^distroverpkg.*/a exclude=nginx*" /etc/yum.conf
+if [ -d "/etc/nginx_config_back_nps" ]; then  
+    rm -rf /etc/nginx
+    cp -rf /etc/nginx_config_back_nps /etc/nginx 
+fi
+if [ ! -L "/etc/nginx/modules" ] ; then
+   cd /etc/nginx
+   ln -s /usr/lib64/nginx/modules modules
+fi
+else
+  echo "==============================================================="
+  echo "Make error"
+  exit 1
+fi
+
